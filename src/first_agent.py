@@ -11,8 +11,12 @@ from langchain_core.messages import HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, START, END
 from typing import List, TypedDict
+from dotenv import load_dotenv
+import os
 
-api_key = "some_api_key"
+load_dotenv()
+
+api_key = os.getenv("GEMINI_API_KEY")
 
 llm = ChatGoogleGenerativeAI(
     model="gemini-1.5-flash",
