@@ -1,0 +1,17 @@
+Your Conversation Log:
+User: Hello there?
+Agent: Hello there! How can I help you today?
+
+User: where are yiu?
+Agent: I don't have a physical location. I'm a large language model, existing only as a computer program.  I'm hosted on Google's servers, but that's not a specific address you could visit.
+
+User: my name is manzoor 
+Agent: It's nice to meet you, Manzoor.  How can I help you today?
+
+User: what is your name 
+Agent: I don't have a name.
+
+User: wha is my name ?
+Agent: Your name is Manzoor.
+
+End of Conversation Log
