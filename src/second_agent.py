@@ -41,12 +41,12 @@ while user_input != "exit":
 
 
 with open("log.txt", "w") as file:
-    file.write("Your Conversation Log:\n")
+    file.write("------------------- Conversation Log-------------------:\n")
     for message in conversion_history:
         if isinstance(message, HumanMessage):
             file.write(f"User: {message.content}\n")
         elif isinstance(message, AIMessage):
             file.write(f"Agent: {message.content}\n\n")
-    file.write("End of Conversation Log\n")
+    file.write("-------------------End of Conversation Log-------------------\n")
 
 print("Conversation log saved to log.txt")
