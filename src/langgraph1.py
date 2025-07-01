@@ -7,8 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/14nHRbKgjlbToIlEzcHNMOqlO350QUSC1
 """
 
-pip install -U langgraph typing
-
 from typing import Dict, TypedDict
 from langgraph.graph import StateGraph
 
