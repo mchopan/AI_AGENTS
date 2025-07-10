@@ -41,7 +41,22 @@ def extract_text_from_pdf(file_path: str) -> str:
         return f"Error reading PDF: {e}"  
     return text
 
-tools = [extract_text_from_pdf]
+
+@tool
+def word_count(text: str) -> int:
+    """
+    Counts the number of words in a given text.
+
+    Args:
+        text (str): The text to count words in.
+
+    Returns:
+        int: The number of words in the text.
+    """
+    words = text.split()
+    return len(words)
+
+tools = [extract_text_from_pdf, word_count]
 
 llm = ChatGoogleGenerativeAI(
     api_key= os.getenv("GOOGLE_API_KEY"),
@@ -52,8 +67,12 @@ llm = ChatGoogleGenerativeAI(
 
 def process_node(state: AgentState) -> AgentState:
     system_prompt = SystemMessage(content="""
-                    You are a helpful assistant that answers questions about PDFs.
-                    Use the extract_text_from_pdf tool to extract text from the PDF file.
+                  You are a helpful assistant that answers questions about PDFs.
+                    You have access to these tools:
+                    - `extract_text_from_pdf(file_path: str) -> str`: Extracts text from a PDF file.
+                    - `word_count(text: str) -> int`: Returns the number of words in a given text.
+
+                    Use them together when necessary to answer the user's question.
                     """)
     
     # Only add system/user prompts at the 
@@ -68,7 +87,7 @@ def process_node(state: AgentState) -> AgentState:
         ]
 
     response = llm.invoke(messages)
-
+    print("🔍 Tool Calls:", getattr(response, "tool_calls", None))
     return {
         "messages": messages + [response],
         "file": state["file"],
@@ -101,8 +120,35 @@ graph.add_edge("toolcall", "process_node")
 
 app = graph.compile()
 
-user_input = input("Enter your question: ")
-file_path = "PDF_QA\\Project Phoenix.pdf"
+# user_input = input("Enter your question: ")
+# file_path = "PDF_QA\\Project Phoenix.pdf"
 
-state = app.invoke({"messages": [], "file": file_path, "user_input": user_input})
-print(state["messages"][-1].content)
+# state = app.invoke({"messages": [], "file": file_path, "user_input": user_input})
+# print(state["messages"][-1].content)
+
+
+# Initial state
+file_path = "PDF_QA\\Project Phoenix.pdf"
+messages = []
+file = file_path
+
+while True:
+    user_input = input("\nAsk a question about the PDF (or type 'exit'): ")
+    if user_input.lower() == "exit":
+        break
+
+    state = app.invoke(
+        {
+            "messages": messages,
+            "file": file,
+            "user_input": user_input
+        },
+    )
+
+    # print(state)
+    # Get last LLM response
+    last_response = state["messages"][-1]
+    print(f"\n🤖 {last_response.content}")
+
+    # Preserve the updated state
+    messages = state["messages"]
