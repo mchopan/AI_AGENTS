@@ -18,7 +18,7 @@ import os
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
     user_input: str
-    last_tool_call_id: str  # NEW
+    tool_calls_made: int  # Track number of tool calls
 
 @tool
 def authenticate_email(username: str, password: str) -> str:
@@ -47,7 +47,7 @@ def get_email_list() -> str:
     if status != 'OK':
         raise Exception(f"Failed to search: {messages}")
     print(f"not send to llm emails: {messages[0].decode('utf-8')}")
-    return messages[0].decode('utf-8')
+    return f"Found {len(messages[0].split())} emails. Email IDs: {messages[0].decode('utf-8')}"
 
 @tool
 def get_email_content(email_id: str) -> str:
@@ -125,7 +125,6 @@ def send_email(recipient: str, subject: str, body: str) -> str:
     except Exception as e:
         return f"Failed to send email: {e}"
 
-# tools = [authenticate_email, get_email_list, get_email_content]
 tools = [authenticate_email, get_email_list, get_email_content, get_last_email, send_email]
 
 llm = ChatGoogleGenerativeAI(
@@ -135,6 +134,15 @@ llm = ChatGoogleGenerativeAI(
 ).bind_tools(tools)
 
 def process_node(state: AgentState) -> AgentState:
+    # Limit the number of tool calls to prevent infinite loops
+    tool_calls_made = state.get("tool_calls_made", 0)
+    if tool_calls_made >= 3:  # Max 3 tool calls per request
+        return {
+            "messages": state["messages"] + [AIMessage(content="Task completed. Maximum tool calls reached.")],
+            "user_input": state["user_input"],
+            "tool_calls_made": tool_calls_made
+        }
+    
     system_prompt = SystemMessage(content="""
         You are an intelligent email assistant.
 
@@ -152,51 +160,67 @@ def process_node(state: AgentState) -> AgentState:
         2. Do **not** ask the user for login credentials — they are already stored securely.
         3. When the user gives you instructions like "email John confirming the meeting," you should:
         - Automatically write a clear subject line and an appropriate email body.
-        - Format the email body in **HTML**.
         - Send the email via `send_email()`.
+        - Don't send mail in html format.
         4. If the task involves reading or responding to previous emails, use `get_last_email()` or `get_email_content(email_id)` first.
         5. Use tools **autonomously and only once per request**, unless the user explicitly asks to repeat something.
         6. After executing a tool, return a concise summary of the action taken and ask the user if they'd like to do anything else.
+
+        IMPORTANT: Once you have successfully completed the user's request (like sending an email), do not make any more tool calls. Simply provide a summary of what was done.
     """)
 
+    # Only add system prompt if it's not already there
+    messages = state["messages"]
+    if not messages or not isinstance(messages[0], SystemMessage):
+        messages = [system_prompt] + messages
+    
     user_prompt = HumanMessage(content=state["user_input"])
-    messages = [system_prompt] + state["messages"] + [user_prompt]
+    messages = messages + [user_prompt]
 
     response = llm.invoke(messages)
-
-    # Check if a tool was called
-    tool_calls = getattr(response, "tool_calls", [])
-
-    # Prevent duplicate tool call
-    if tool_calls and state.get("last_tool_call_id") == tool_calls[0]["id"]:
-        print("Skipping duplicate tool call.")
-        return {
-            "messages": messages + [AIMessage(content="Tool already executed. No further action needed.")],
-            "user_input": state["user_input"],
-            "last_tool_call_id": state.get("last_tool_call_id"),
-        }
 
     return {
         "messages": messages + [response],
         "user_input": state["user_input"],
-        "last_tool_call_id": tool_calls[0]["id"] if tool_calls else None
+        "tool_calls_made": tool_calls_made
     }
 
+def increment_tool_calls(state: AgentState) -> AgentState:
+    """Increment tool call counter after each tool execution"""
+    return {
+        "messages": state["messages"],
+        "user_input": state["user_input"],
+        "tool_calls_made": state.get("tool_calls_made", 0) + 1
+    }
 
 def should_continue(state: AgentState):
+    """Determine if we should continue with tools or end"""
     messages = state["messages"]
     last_message = messages[-1]
-    if not last_message.tool_calls:
-        return "end"
-    else:
-        return "continue"
     
+    # Check if we've made too many tool calls
+    tool_calls_made = state.get("tool_calls_made", 0)
+    if tool_calls_made >= 3:
+        return "end"
+    
+    # Check if the last message has tool calls
+    if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
+        return "end"
+    
+    # For specific requests, limit tool calls
+    user_input = state.get("user_input", "").lower()
+    if "retrieve" in user_input or "get" in user_input:
+        # For retrieval requests, allow auth + get_email_list
+        if tool_calls_made >= 2:
+            return "end"
+    
+    return "continue"
 
 graph = StateGraph(AgentState)
 
 graph.add_node("process_node", process_node)
 graph.add_node("tool_node", ToolNode(tools=tools))
-
+graph.add_node("increment_counter", increment_tool_calls)
 
 graph.add_edge(START, "process_node")
 graph.add_conditional_edges(
@@ -207,13 +231,16 @@ graph.add_conditional_edges(
         "end": END
     }
 )
-graph.add_edge("tool_node", "process_node")
-
+graph.add_edge("tool_node", "increment_counter")
+graph.add_edge("increment_counter", "process_node")
 
 app = graph.compile()
 
-result = app.invoke({"user_input":"send an email to mchopan21@gmail.com, subject: hello, body: hello world snd it only once"})
+# Test the agent
+result = app.invoke({
+    "user_input": "read the last mail",
+    "tool_calls_made": 0
+})
 
 # Print all messages in the conversation for debugging
-for msg in result["messages"]:
-    print(f"{type(msg).__name__}: {getattr(msg, 'content', msg)}")
+print(result["messages"][-1].content)
